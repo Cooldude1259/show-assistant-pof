@@ -1,38 +1,270 @@
 import 'package:flutter/material.dart';
 
-/// Placeholder for the audience side (separate trust level, no sign-in).
-class AudienceScreen extends StatelessWidget {
-  const AudienceScreen({super.key, required this.showName});
+import '../models.dart';
+import '../theme.dart';
 
-  final String showName;
+/// Audience view: a digital programme rather than a tool. Separate look and
+/// separate trust level from the crew app.
+class AudienceScreen extends StatelessWidget {
+  const AudienceScreen({super.key, required this.show});
+
+  final AudienceShow show;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Scaffold(
-      appBar: AppBar(title: Text(showName)),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
+    // Pushed routes take the app's theme, not the screen that pushed them,
+    // so this screen applies the programme theme itself.
+    return Theme(
+      data: playbillTheme(),
+      child: Scaffold(
+        body: CustomScrollView(
+          slivers: [
+            SliverAppBar(
+              pinned: true,
+              expandedHeight: 240,
+              backgroundColor: Playbill.bg,
+              foregroundColor: Playbill.cream,
+              title: const Text('Programme', style: TextStyle(fontFamily: Playbill.serif)),
+              flexibleSpace: FlexibleSpaceBar(
+                collapseMode: CollapseMode.parallax,
+                background: _Hero(show: show),
+              ),
+            ),
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 40),
+              sliver: SliverList.list(
+                children: [
+                  _StatusCard(show: show),
+                  const SizedBox(height: 12),
+                  for (final notice in show.notices) _Notice(text: notice),
+                  const _SectionTitle('Scenes'),
+                  ..._scenesByAct(show.scenes),
+                  const _SectionTitle('Cast'),
+                  for (final member in show.cast) _CastRow(member: member),
+                  const _SectionTitle('At the venue'),
+                  for (final info in show.venueInfo) _VenueRow(info: info),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  List<Widget> _scenesByAct(List<Scene> scenes) {
+    final widgets = <Widget>[];
+    int? currentAct;
+    for (final scene in scenes) {
+      if (scene.act != currentAct) {
+        currentAct = scene.act;
+        widgets.add(Padding(
+          padding: const EdgeInsets.only(top: 8, bottom: 4),
+          child: Text('Act ${scene.act}',
+              style: const TextStyle(
+                  fontFamily: Playbill.serif, fontSize: 18, color: Playbill.gold)),
+        ));
+      }
+      widgets.add(Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 32,
+              child: Text('${scene.number}',
+                  style: const TextStyle(color: Playbill.muted, fontSize: 16)),
+            ),
+            Expanded(
+              child: Text(scene.title,
+                  style: const TextStyle(fontFamily: Playbill.serif, fontSize: 18)),
+            ),
+          ],
+        ),
+      ));
+    }
+    return widgets;
+  }
+}
+
+class _Hero extends StatelessWidget {
+  const _Hero({required this.show});
+
+  final AudienceShow show;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Playbill.curtain, Playbill.bg],
+        ),
+      ),
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+      alignment: Alignment.bottomLeft,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Card(
-            child: ListTile(
-              leading: const Icon(Icons.schedule),
-              title: const Text('Show starts in 15 minutes'),
-              subtitle: const Text('Please take your seats'),
+          Text(show.title,
+              style: const TextStyle(
+                  fontFamily: Playbill.serif, fontSize: 40, color: Playbill.cream)),
+          const SizedBox(height: 4),
+          Text(show.tagline,
+              style: const TextStyle(
+                  fontFamily: Playbill.serif,
+                  fontStyle: FontStyle.italic,
+                  color: Playbill.muted,
+                  fontSize: 16)),
+          const SizedBox(height: 12),
+          Text('${show.venue}  ·  ${show.dateLine}',
+              style: const TextStyle(
+                  color: Playbill.gold, letterSpacing: 1, fontWeight: FontWeight.w600)),
+        ],
+      ),
+    );
+  }
+}
+
+class _StatusCard extends StatelessWidget {
+  const _StatusCard({required this.show});
+
+  final AudienceShow show;
+
+  @override
+  Widget build(BuildContext context) {
+    final (label, icon) = switch (show.status) {
+      AudienceStatus.preShow => ('BEFORE THE SHOW', Icons.event_seat_outlined),
+      AudienceStatus.inProgress => ('NOW PLAYING', Icons.theater_comedy),
+      AudienceStatus.interval => ('INTERVAL', Icons.local_cafe_outlined),
+      AudienceStatus.ended => ('THANK YOU', Icons.favorite_border),
+    };
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Playbill.panel,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Playbill.gold.withOpacity(0.5)),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: Playbill.gold, size: 32),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label,
+                    style: const TextStyle(
+                        color: Playbill.gold,
+                        letterSpacing: 2,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700)),
+                const SizedBox(height: 4),
+                Text(show.statusLine,
+                    style: const TextStyle(fontFamily: Playbill.serif, fontSize: 18)),
+              ],
             ),
           ),
-          Card(
-            child: ListTile(
-              leading: const Icon(Icons.phonelink_erase),
-              title: const Text('Phones on silent'),
-              subtitle: const Text('This screen dims automatically when the show starts'),
-            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _Notice extends StatelessWidget {
+  const _Notice({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Padding(
+            padding: EdgeInsets.only(top: 2),
+            child: Icon(Icons.info_outline, size: 18, color: Playbill.gold),
           ),
-          const SizedBox(height: 24),
-          Text(
-            'Audience features are a placeholder in this proof of concept.',
-            textAlign: TextAlign.center,
-            style: theme.textTheme.bodySmall?.copyWith(color: Colors.white54),
+          const SizedBox(width: 10),
+          Expanded(child: Text(text, style: const TextStyle(color: Playbill.muted))),
+        ],
+      ),
+    );
+  }
+}
+
+class _SectionTitle extends StatelessWidget {
+  const _SectionTitle(this.text);
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 28, bottom: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(text,
+              style: const TextStyle(
+                  fontFamily: Playbill.serif, fontSize: 26, color: Playbill.cream)),
+          const SizedBox(height: 6),
+          Container(width: 48, height: 2, color: Playbill.gold),
+        ],
+      ),
+    );
+  }
+}
+
+class _CastRow extends StatelessWidget {
+  const _CastRow({required this.member});
+
+  final CastMember member;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(member.character,
+                style: const TextStyle(
+                    fontFamily: Playbill.serif, fontStyle: FontStyle.italic, fontSize: 18)),
+          ),
+          Text(member.performer, style: const TextStyle(color: Playbill.muted)),
+        ],
+      ),
+    );
+  }
+}
+
+class _VenueRow extends StatelessWidget {
+  const _VenueRow({required this.info});
+
+  final VenueInfo info;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        children: [
+          Icon(info.icon, color: Playbill.gold),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(info.title, style: const TextStyle(fontWeight: FontWeight.w700)),
+                Text(info.detail, style: const TextStyle(color: Playbill.muted)),
+              ],
+            ),
           ),
         ],
       ),

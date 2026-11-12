@@ -1,18 +1,19 @@
 import 'package:flutter/material.dart';
 
 import '../services/show_service.dart';
-import 'audience_screen.dart';
+import '../theme.dart';
 
-class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key, required this.service});
+/// Crew/staff sign-in. Reached from the audience join screen.
+class StaffLoginScreen extends StatefulWidget {
+  const StaffLoginScreen({super.key, required this.service});
 
   final ShowService service;
 
   @override
-  State<LoginScreen> createState() => _LoginScreenState();
+  State<StaffLoginScreen> createState() => _StaffLoginScreenState();
 }
 
-class _LoginScreenState extends State<LoginScreen> {
+class _StaffLoginScreenState extends State<StaffLoginScreen> {
   final _showCode = TextEditingController();
   final _username = TextEditingController();
   final _pin = TextEditingController();
@@ -28,6 +29,7 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _signIn() async {
+    if (_loading) return;
     FocusScope.of(context).unfocus();
     setState(() {
       _loading = true;
@@ -39,7 +41,9 @@ class _LoginScreenState extends State<LoginScreen> {
         username: _username.text,
         pin: _pin.text,
       );
-      // On success the app root swaps this screen out, so nothing else to do.
+      // The app root now shows the crew/caller screen underneath this one,
+      // so close the sign-in page to reveal it.
+      if (mounted) Navigator.of(context).popUntil((route) => route.isFirst);
     } on LoginException catch (e) {
       if (mounted) setState(() => _error = e.message);
     } finally {
@@ -58,10 +62,10 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final isMock = widget.service is MockShowService;
 
     return Scaffold(
+      appBar: AppBar(title: const Text('Crew & staff')),
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
@@ -71,15 +75,12 @@ class _LoginScreenState extends State<LoginScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Icon(Icons.theater_comedy, size: 64, color: theme.colorScheme.primary),
-                  const SizedBox(height: 12),
-                  Text('Show Assistant',
-                      textAlign: TextAlign.center, style: theme.textTheme.headlineMedium),
+                  const Text('Sign in',
+                      style: TextStyle(fontSize: 32, fontWeight: FontWeight.w900)),
                   const SizedBox(height: 4),
-                  Text('Crew sign-in',
-                      textAlign: TextAlign.center,
-                      style: theme.textTheme.bodyMedium?.copyWith(color: Colors.white60)),
-                  const SizedBox(height: 32),
+                  const Text('Use the show code and PIN from your stage manager.',
+                      style: TextStyle(color: Backstage.textMuted)),
+                  const SizedBox(height: 24),
                   TextField(
                     controller: _showCode,
                     textCapitalization: TextCapitalization.characters,
@@ -87,7 +88,6 @@ class _LoginScreenState extends State<LoginScreen> {
                     decoration: const InputDecoration(
                       labelText: 'Show code',
                       prefixIcon: Icon(Icons.confirmation_number_outlined),
-                      border: OutlineInputBorder(),
                     ),
                   ),
                   const SizedBox(height: 12),
@@ -98,7 +98,6 @@ class _LoginScreenState extends State<LoginScreen> {
                     decoration: const InputDecoration(
                       labelText: 'Username',
                       prefixIcon: Icon(Icons.person_outline),
-                      border: OutlineInputBorder(),
                     ),
                   ),
                   const SizedBox(height: 12),
@@ -107,64 +106,57 @@ class _LoginScreenState extends State<LoginScreen> {
                     obscureText: true,
                     keyboardType: TextInputType.number,
                     textInputAction: TextInputAction.done,
-                    onSubmitted: (_) => _loading ? null : _signIn(),
+                    onSubmitted: (_) => _signIn(),
                     decoration: const InputDecoration(
                       labelText: 'PIN',
                       prefixIcon: Icon(Icons.lock_outline),
-                      border: OutlineInputBorder(),
                     ),
                   ),
                   if (_error != null) ...[
                     const SizedBox(height: 12),
                     Text(_error!,
-                        textAlign: TextAlign.center,
-                        style: TextStyle(color: theme.colorScheme.error)),
+                        style: const TextStyle(
+                            color: Backstage.danger, fontWeight: FontWeight.w700)),
                   ],
                   const SizedBox(height: 20),
                   FilledButton(
                     onPressed: _loading ? null : _signIn,
-                    style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(52)),
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size.fromHeight(56),
+                      textStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+                    ),
                     child: _loading
                         ? const SizedBox(
-                            width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2))
+                            width: 22,
+                            height: 22,
+                            child: CircularProgressIndicator(
+                                strokeWidth: 2, color: Backstage.black))
                         : const Text('Sign in'),
                   ),
-                  const SizedBox(height: 8),
-                  TextButton(
-                    onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(
-                      builder: (_) => AudienceScreen(showName: widget.service.showName),
-                    )),
-                    child: const Text('Join as audience instead'),
-                  ),
                   if (isMock) ...[
-                    const SizedBox(height: 24),
-                    Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('Demo accounts', style: theme.textTheme.titleSmall),
-                            const SizedBox(height: 4),
-                            Text(
-                              'Show code ${MockShowService.demoShowCode}, PIN ${MockShowService.demoPin}. Tap one to fill in.',
-                              style: theme.textTheme.bodySmall?.copyWith(color: Colors.white60),
-                            ),
-                            const SizedBox(height: 12),
-                            Wrap(
-                              spacing: 8,
-                              runSpacing: 8,
-                              children: [
-                                for (final account in MockShowService.demoAccounts)
-                                  ActionChip(
-                                    label: Text('${account.username} · ${account.roleLabel}'),
-                                    onPressed: () => _fillDemo(account.username),
-                                  ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
+                    const SizedBox(height: 28),
+                    const Text('DEMO ACCOUNTS',
+                        style: TextStyle(
+                            color: Backstage.accent,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 1.5,
+                            fontSize: 13)),
+                    const SizedBox(height: 4),
+                    const Text(
+                      'Show code ${MockShowService.demoShowCode}, PIN ${MockShowService.demoPin}. Tap one to fill in.',
+                      style: TextStyle(color: Backstage.textMuted, fontSize: 13),
+                    ),
+                    const SizedBox(height: 12),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (final account in MockShowService.demoAccounts)
+                          ActionChip(
+                            label: Text('${account.username} · ${account.roleLabel}'),
+                            onPressed: () => _fillDemo(account.username),
+                          ),
+                      ],
                     ),
                   ],
                 ],

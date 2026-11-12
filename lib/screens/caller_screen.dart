@@ -2,9 +2,10 @@ import 'package:flutter/material.dart';
 
 import '../models.dart';
 import '../services/show_service.dart';
+import '../theme.dart';
 import '../widgets/cue_light.dart';
 
-/// Stage manager view: pick a cue, put it in standby, call GO.
+/// Stage manager view: set the live scene, pick a cue, STANDBY, GO.
 class CallerScreen extends StatefulWidget {
   const CallerScreen({super.key, required this.service});
 
@@ -15,7 +16,7 @@ class CallerScreen extends StatefulWidget {
 }
 
 class _CallerScreenState extends State<CallerScreen> {
-  int _selected = 0;
+  late String _selectedId = widget.service.cues.first.id;
 
   ShowService get s => widget.service;
 
@@ -26,7 +27,7 @@ class _CallerScreenState extends State<CallerScreen> {
     if (active != null) {
       final index = s.cues.indexOf(active);
       if (index >= 0 && index < s.cues.length - 1) {
-        setState(() => _selected = index + 1);
+        setState(() => _selectedId = s.cues[index + 1].id);
       }
     }
   }
@@ -36,14 +37,14 @@ class _CallerScreenState extends State<CallerScreen> {
     return ListenableBuilder(
       listenable: s,
       builder: (context, _) {
-        final cues = s.cues;
-        final selectedCue = cues[_selected];
+        final selectedCue = s.cueById(_selectedId) ?? s.cues.first;
         final selectedIsInStandby =
             s.state == CueState.standby && s.activeCue?.id == selectedCue.id;
+        final scene = s.scenes[s.sceneIndex];
 
         return Scaffold(
           appBar: AppBar(
-            title: Text(s.showName),
+            title: Text('Stage Manager · ${s.showName}'),
             actions: [
               IconButton(
                 icon: const Icon(Icons.logout),
@@ -56,24 +57,62 @@ class _CallerScreenState extends State<CallerScreen> {
             children: [
               _StatusPanel(service: s),
               const Divider(height: 1),
+              // Live scene control: crew screens follow this.
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                child: Row(
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.chevron_left),
+                      onPressed: s.sceneIndex > 0 ? () => s.setScene(s.sceneIndex - 1) : null,
+                    ),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('LIVE SCENE · ${scene.label.toUpperCase()}',
+                              style: const TextStyle(
+                                  color: Backstage.go,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: 1.2,
+                                  fontSize: 12)),
+                          Text(scene.title,
+                              style:
+                                  const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.chevron_right),
+                      onPressed: s.sceneIndex < s.scenes.length - 1
+                          ? () => s.setScene(s.sceneIndex + 1)
+                          : null,
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
               Expanded(
-                child: ListView.builder(
-                  itemCount: cues.length,
-                  itemBuilder: (context, i) {
-                    final cue = cues[i];
-                    final isActive = s.activeCue?.id == cue.id;
-                    return ListTile(
-                      selected: i == _selected,
-                      selectedTileColor: Colors.white10,
-                      leading: CueLight(state: isActive ? s.state : CueState.idle),
-                      title: Text(cue.label,
-                          style: const TextStyle(fontWeight: FontWeight.bold)),
-                      subtitle: Text(cue.description),
-                      trailing: Text(cue.department.label,
-                          style: const TextStyle(color: Colors.white54)),
-                      onTap: () => setState(() => _selected = i),
-                    );
-                  },
+                child: ListView(
+                  children: [
+                    for (final sc in s.scenes) ...[
+                      Container(
+                        color: Backstage.surfaceHigh,
+                        padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+                        child: Text(
+                          '${sc.label} · ${sc.title}'.toUpperCase(),
+                          style: TextStyle(
+                            color: sc.id == scene.id ? Backstage.go : Backstage.accent,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 1.2,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                      for (final cue in s.cues.where((c) => c.sceneId == sc.id))
+                        _cueTile(cue),
+                    ],
+                  ],
                 ),
               ),
             ],
@@ -86,7 +125,7 @@ class _CallerScreenState extends State<CallerScreen> {
                   Expanded(
                     child: _BigButton(
                       label: 'STANDBY\n${selectedCue.label}',
-                      color: Colors.amber,
+                      color: Backstage.standby,
                       onPressed: selectedIsInStandby ? null : () => s.standby(selectedCue),
                     ),
                   ),
@@ -96,7 +135,7 @@ class _CallerScreenState extends State<CallerScreen> {
                       label: s.activeCue != null && s.state == CueState.standby
                           ? 'GO\n${s.activeCue!.label}'
                           : 'GO',
-                      color: Colors.greenAccent.shade400,
+                      color: Backstage.go,
                       onPressed: s.state == CueState.standby ? _go : null,
                     ),
                   ),
@@ -106,6 +145,29 @@ class _CallerScreenState extends State<CallerScreen> {
           ),
         );
       },
+    );
+  }
+
+  Widget _cueTile(Cue cue) {
+    final isActive = s.activeCue?.id == cue.id;
+    final isSelected = cue.id == _selectedId;
+    return Container(
+      decoration: BoxDecoration(
+        color: isSelected ? Backstage.surfaceHigh : null,
+        border: Border(
+          left: BorderSide(
+            color: isSelected ? Backstage.accent : Colors.transparent,
+            width: 4,
+          ),
+        ),
+      ),
+      child: ListTile(
+        leading: CueLight(state: isActive ? s.state : CueState.idle),
+        title: Text(cue.label, style: const TextStyle(fontWeight: FontWeight.w900)),
+        subtitle: Text(cue.description, style: const TextStyle(color: Backstage.textMuted)),
+        trailing: Text(cue.department.label, style: const TextStyle(color: Backstage.textMuted)),
+        onTap: () => setState(() => _selectedId = cue.id),
+      ),
     );
   }
 }
@@ -118,7 +180,6 @@ class _StatusPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cue = service.activeCue;
-    final theme = Theme.of(context);
 
     final String title;
     final String detail;
@@ -145,13 +206,12 @@ class _StatusPanel extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title, style: theme.textTheme.titleLarge),
-                Text(detail, style: const TextStyle(color: Colors.white70)),
+                Text(title, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900)),
+                Text(detail, style: const TextStyle(color: Backstage.textMuted, fontSize: 15)),
               ],
             ),
           ),
-          if (cue != null)
-            TextButton(onPressed: service.reset, child: const Text('Clear')),
+          if (cue != null) TextButton(onPressed: service.reset, child: const Text('Clear')),
         ],
       ),
     );
@@ -171,11 +231,14 @@ class _BigButton extends StatelessWidget {
       onPressed: onPressed,
       style: FilledButton.styleFrom(
         backgroundColor: color,
-        foregroundColor: Colors.black,
-        disabledBackgroundColor: Colors.white12,
-        disabledForegroundColor: Colors.white38,
+        foregroundColor: Backstage.black,
+        disabledBackgroundColor: Backstage.surfaceHigh,
+        disabledForegroundColor: Backstage.textMuted,
         minimumSize: const Size.fromHeight(76),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: const BorderSide(color: Backstage.border),
+        ),
       ),
       child: Text(
         label,

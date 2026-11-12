@@ -1,10 +1,16 @@
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 
 import '../models.dart';
 import '../services/show_service.dart';
+import '../theme.dart';
 import '../widgets/cue_light.dart';
+import '../widgets/department_notes.dart';
+import '../widgets/script_view.dart';
 
-/// Crew view: the whole screen is a cue light for your department.
+/// Crew view: cue light strip on top, then the script with your department's
+/// notes beside it (side by side on wide screens, tabs on a phone).
 class CrewScreen extends StatefulWidget {
   const CrewScreen({super.key, required this.service});
 
@@ -19,6 +25,10 @@ class _CrewScreenState extends State<CrewScreen> {
   String? _lastCueId;
   bool _demoCaller = true;
   int _demoIndex = 0;
+  int _tab = 0;
+
+  /// Scene being viewed. Null = follow the live scene.
+  int? _viewIndex;
 
   ShowService get s => widget.service;
 
@@ -53,18 +63,27 @@ class _CrewScreenState extends State<CrewScreen> {
     return ListenableBuilder(
       listenable: s,
       builder: (context, _) {
-        final dept = s.user?.department;
-        if (dept == null) return const SizedBox.shrink();
+        final user = s.user;
+        final dept = user?.department;
+        if (user == null || dept == null) return const SizedBox.shrink();
 
-        final cue = s.activeCue;
-        final mine = cue != null && cue.department == dept;
-        final state = mine ? s.state : CueState.idle;
-        final fg = state == CueState.idle ? Colors.white : Colors.black;
-        final background = state == CueState.idle ? const Color(0xFF121212) : cueColor(state);
+        final liveIndex = s.sceneIndex;
+        final viewIndex = max(0, min(_viewIndex ?? liveIndex, s.scenes.length - 1));
+        final scene = s.scenes[viewIndex];
+        final nextScene = s.sceneAt(viewIndex + 1);
+
+        final script = ScriptView(service: s, scene: scene, myDepartment: dept);
+        final notes = DepartmentNotes(
+          service: s,
+          user: user,
+          department: dept,
+          scene: scene,
+          nextScene: nextScene,
+        );
 
         return Scaffold(
           appBar: AppBar(
-            title: Text('${dept.label} · ${s.showName}'),
+            title: Text('${user.roleLabel} · ${s.showName}'),
             actions: [
               IconButton(
                 icon: Icon(_demoCaller ? Icons.science : Icons.science_outlined),
@@ -80,55 +99,70 @@ class _CrewScreenState extends State<CrewScreen> {
           ),
           body: Column(
             children: [
+              _CueStrip(service: s, department: dept),
+              _SceneBar(
+                scene: scene,
+                isLive: viewIndex == liveIndex,
+                onPrevious: viewIndex > 0 ? () => setState(() => _viewIndex = viewIndex - 1) : null,
+                onNext: viewIndex < s.scenes.length - 1
+                    ? () => setState(() => _viewIndex = viewIndex + 1)
+                    : null,
+                onBackToLive: () => setState(() => _viewIndex = null),
+              ),
+              const Divider(height: 1),
               Expanded(
-                child: GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: mine && s.state == CueState.standby ? s.acknowledge : null,
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 250),
-                    width: double.infinity,
-                    color: background,
-                    child: Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    if (constraints.maxWidth >= 700) {
+                      return Row(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          Text(
-                            switch (state) {
-                              CueState.idle => 'CLEAR',
-                              CueState.standby => 'STANDBY',
-                              CueState.go => 'GO',
-                            },
-                            style: TextStyle(
-                              fontSize: 64,
-                              fontWeight: FontWeight.w900,
-                              letterSpacing: 6,
-                              color: fg,
+                          Expanded(flex: 3, child: script),
+                          const VerticalDivider(width: 1),
+                          Expanded(flex: 2, child: notes),
+                        ],
+                      );
+                    }
+                    return Column(
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(12, 10, 12, 4),
+                          child: SizedBox(
+                            width: double.infinity,
+                            child: SegmentedButton<int>(
+                              showSelectedIcon: false,
+                              style: SegmentedButton.styleFrom(
+                                selectedBackgroundColor: Backstage.accent,
+                                selectedForegroundColor: Backstage.black,
+                                foregroundColor: Backstage.text,
+                                side: const BorderSide(color: Backstage.border),
+                              ),
+                              segments: [
+                                const ButtonSegment(
+                                  value: 0,
+                                  label: Text('Script'),
+                                  icon: Icon(Icons.description_outlined),
+                                ),
+                                ButtonSegment(
+                                  value: 1,
+                                  label: Text(dept == Department.stage ? 'Props' : 'My cues'),
+                                  icon: Icon(dept == Department.stage
+                                      ? Icons.inventory_2_outlined
+                                      : Icons.edit_note),
+                                ),
+                              ],
+                              selected: {_tab},
+                              onSelectionChanged: (selection) =>
+                                  setState(() => _tab = selection.first),
                             ),
                           ),
-                          if (mine) ...[
-                            const SizedBox(height: 8),
-                            Text(cue!.label,
-                                style: TextStyle(
-                                    fontSize: 32, fontWeight: FontWeight.bold, color: fg)),
-                            Text(cue!.description, style: TextStyle(fontSize: 18, color: fg)),
-                          ] else
-                            const Text('Waiting for your next cue',
-                                style: TextStyle(color: Colors.white54)),
-                          if (mine && s.state == CueState.standby) ...[
-                            const SizedBox(height: 32),
-                            Text(
-                              s.acknowledged ? 'Acknowledged ✓' : 'Tap anywhere to acknowledge',
-                              style: TextStyle(
-                                  fontSize: 18, fontWeight: FontWeight.w600, color: fg),
-                            ),
-                          ],
-                        ],
-                      ),
-                    ),
-                  ),
+                        ),
+                        Expanded(child: _tab == 0 ? script : notes),
+                      ],
+                    );
+                  },
                 ),
               ),
-              if (cue != null && !mine) _OtherDeptBanner(cue: cue, state: s.state),
               if (_demoCaller) _demoBar(dept),
             ],
           ),
@@ -144,17 +178,17 @@ class _CrewScreenState extends State<CrewScreen> {
     final next = myCues[_demoIndex % myCues.length];
 
     return Material(
-      color: Colors.black,
+      color: Backstage.surface,
       child: SafeArea(
         top: false,
         child: Padding(
-          padding: const EdgeInsets.all(12),
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
           child: Row(
             children: [
               Expanded(
                 child: OutlinedButton(
                   onPressed: () => s.standby(next),
-                  child: Text('Demo: standby ${next.label}'),
+                  child: Text('Standby ${next.label}', overflow: TextOverflow.ellipsis),
                 ),
               ),
               const SizedBox(width: 8),
@@ -166,7 +200,14 @@ class _CrewScreenState extends State<CrewScreen> {
                           setState(() => _demoIndex++);
                         }
                       : null,
-                  child: const Text('Demo: GO'),
+                  child: const Text('GO'),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: () => s.setScene((s.sceneIndex + 1) % s.scenes.length),
+                  child: const Text('Next scene'),
                 ),
               ),
             ],
@@ -177,23 +218,129 @@ class _CrewScreenState extends State<CrewScreen> {
   }
 }
 
-class _OtherDeptBanner extends StatelessWidget {
-  const _OtherDeptBanner({required this.cue, required this.state});
+/// Top strip. Quiet when nothing is live; grows and fills with colour when
+/// your department's cue is in standby or called.
+class _CueStrip extends StatelessWidget {
+  const _CueStrip({required this.service, required this.department});
 
-  final Cue cue;
-  final CueState state;
+  final ShowService service;
+  final Department department;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      color: Colors.white10,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+    final cue = service.activeCue;
+    final mine = cue != null && cue.department == department;
+    final state = mine ? service.state : CueState.idle;
+    final active = state != CueState.idle;
+    final fg = active ? Backstage.black : Backstage.text;
+
+    final String detail;
+    if (cue != null && mine) {
+      detail = '${cue.label} · ${cue.description}';
+    } else if (cue != null) {
+      detail = 'Other dept: ${cue.label} ${cueWord(service.state).toLowerCase()}';
+    } else {
+      detail = 'No cues live';
+    }
+
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: mine && service.state == CueState.standby ? service.acknowledge : null,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        width: double.infinity,
+        height: active ? 132 : 64,
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        color: active ? cueColor(state) : Backstage.surface,
+        child: Row(
+          children: [
+            if (!active) ...[
+              CueLight(state: cue == null ? CueState.idle : service.state, size: 22),
+              const SizedBox(width: 12),
+            ],
+            Text(
+              cueWord(state),
+              style: TextStyle(
+                fontSize: active ? 44 : 20,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 4,
+                color: fg,
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    detail,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: active ? fg : Backstage.textMuted,
+                      fontSize: active ? 18 : 15,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  if (mine && service.state == CueState.standby)
+                    Text(
+                      service.acknowledged ? 'Acknowledged ✓' : 'Tap here to acknowledge',
+                      style: TextStyle(color: fg, fontWeight: FontWeight.w900, fontSize: 16),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SceneBar extends StatelessWidget {
+  const _SceneBar({
+    required this.scene,
+    required this.isLive,
+    required this.onPrevious,
+    required this.onNext,
+    required this.onBackToLive,
+  });
+
+  final Scene scene;
+  final bool isLive;
+  final VoidCallback? onPrevious;
+  final VoidCallback? onNext;
+  final VoidCallback onBackToLive;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
       child: Row(
         children: [
-          CueLight(state: state, size: 14),
-          const SizedBox(width: 10),
-          Text('${cue.label} ${state == CueState.go ? 'GO' : 'standby'} · ${cue.department.label}'),
+          IconButton(icon: const Icon(Icons.chevron_left), onPressed: onPrevious),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${isLive ? 'LIVE' : 'LOOKING AHEAD'} · ${scene.label}'.toUpperCase(),
+                  style: TextStyle(
+                    color: isLive ? Backstage.go : Backstage.accent,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 1.2,
+                    fontSize: 12,
+                  ),
+                ),
+                Text(scene.title,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+              ],
+            ),
+          ),
+          if (!isLive) TextButton(onPressed: onBackToLive, child: const Text('Back to live')),
+          IconButton(icon: const Icon(Icons.chevron_right), onPressed: onNext),
         ],
       ),
     );

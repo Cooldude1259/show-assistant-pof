@@ -2,11 +2,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../models.dart';
+import '../theme.dart';
 
 Color cueColor(CueState state) => switch (state) {
-      CueState.idle => const Color(0xFF2A2A2A),
-      CueState.standby => Colors.amber,
-      CueState.go => Colors.greenAccent.shade400,
+      CueState.idle => Backstage.surfaceHigh,
+      CueState.standby => Backstage.standby,
+      CueState.go => Backstage.go,
+    };
+
+String cueWord(CueState state) => switch (state) {
+      CueState.idle => 'CLEAR',
+      CueState.standby => 'STANDBY',
+      CueState.go => 'GO',
     };
 
 /// Small round indicator used in lists.
@@ -26,10 +33,10 @@ class CueLight extends StatelessWidget {
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         color: color,
-        border: Border.all(color: Colors.white24),
-        boxShadow: state == CueState.idle
-            ? null
-            : [BoxShadow(color: color.withOpacity(0.6), blurRadius: size)],
+        border: Border.all(
+          color: state == CueState.idle ? Backstage.border : Colors.white,
+          width: 2,
+        ),
       ),
     );
   }
