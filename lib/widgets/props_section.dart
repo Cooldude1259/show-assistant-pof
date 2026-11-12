@@ -5,228 +5,139 @@ import '../services/show_service.dart';
 import '../theme.dart';
 import 'panel.dart';
 
-/// The side panel next to the script. What's in it depends on department:
-/// stage crew get the props lists, everyone else gets their own cues + notes.
-class DepartmentNotes extends StatelessWidget {
-  const DepartmentNotes({
+/// Expandable props block shown at the top of each scene in the script, for
+/// stage crew. Lists what goes on this scene, what's needed next, and what
+/// should come back.
+class PropsSection extends StatefulWidget {
+  const PropsSection({
     super.key,
     required this.service,
     required this.user,
-    required this.department,
     required this.scene,
     this.nextScene,
   });
 
   final ShowService service;
   final StaffUser user;
-  final Department department;
   final Scene scene;
   final Scene? nextScene;
 
   @override
-  Widget build(BuildContext context) {
-    if (department == Department.stage) {
-      return PropsPanel(service: service, user: user, scene: scene, nextScene: nextScene);
-    }
-    return CueNotesPanel(
-      service: service,
-      user: user,
-      department: department,
-      scene: scene,
-      nextScene: nextScene,
-    );
-  }
+  State<PropsSection> createState() => _PropsSectionState();
 }
 
-// ---------------------------------------------------------------------------
-// Cue notes (lighting, sound, fly)
-// ---------------------------------------------------------------------------
-
-class CueNotesPanel extends StatelessWidget {
-  const CueNotesPanel({
-    super.key,
-    required this.service,
-    required this.user,
-    required this.department,
-    required this.scene,
-    this.nextScene,
-  });
-
-  final ShowService service;
-  final StaffUser user;
-  final Department department;
-  final Scene scene;
-  final Scene? nextScene;
+class _PropsSectionState extends State<PropsSection> {
+  bool _expanded = false;
 
   @override
   Widget build(BuildContext context) {
-    final thisScene = service.cuesFor(scene.id, department);
-    final next = nextScene;
-    final nextCues = next == null ? <Cue>[] : service.cuesFor(next.id, department);
-    final canEdit = user.canEditCueNotes(department);
+    final service = widget.service;
+    final props = service.props;
+    final scene = widget.scene;
+    final next = widget.nextScene;
+    final thisScene = props.where((p) => p.onSceneId == scene.id).toList();
+    final nextUp = next == null ? <Prop>[] : props.where((p) => p.onSceneId == next.id).toList();
+    final comingBack = props.where((p) => p.offSceneId == scene.id).toList();
+    final canEdit = widget.user.canEditProps;
+    final outstanding = thisScene.where((p) => !p.isSet).length;
 
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 4, 16, 32),
-      children: [
-        SectionHeader('${department.label} cues · this scene'),
-        if (thisScene.isEmpty) MutedText('No ${department.label.toLowerCase()} cues this scene.'),
-        for (final cue in thisScene) _CueNoteTile(service: service, cue: cue, canEdit: canEdit),
-        if (next != null) ...[
-          SectionHeader('Next · ${next.title}'),
-          if (nextCues.isEmpty) MutedText('No ${department.label.toLowerCase()} cues next scene.'),
-          for (final cue in nextCues) _CueNoteTile(service: service, cue: cue, canEdit: canEdit),
-        ],
-        if (canEdit)
-          const Padding(
-            padding: EdgeInsets.only(top: 12),
-            child: MutedText('Tap a cue to write your own notes on it.'),
-          ),
-      ],
-    );
-  }
-}
-
-class _CueNoteTile extends StatelessWidget {
-  const _CueNoteTile({required this.service, required this.cue, required this.canEdit});
-
-  final ShowService service;
-  final Cue cue;
-  final bool canEdit;
-
-  @override
-  Widget build(BuildContext context) {
-    final note = service.cueNote(cue.id);
-    final live = service.activeCue?.id == cue.id && service.state != CueState.idle;
-
-    return Panel(
-      highlight: live
-          ? (service.state == CueState.go ? Backstage.go : Backstage.standby)
-          : null,
-      onTap: canEdit
-          ? () async {
-              final result = await showNoteDialog(context,
-                  title: '${cue.label} notes', initial: note);
-              if (result != null) service.setCueNote(cue.id, result);
-            }
-          : null,
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      decoration: BoxDecoration(
+        color: Backstage.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Backstage.accent, width: 2),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(cue.label,
-                    style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18)),
-                Text(cue.description, style: const TextStyle(color: Backstage.textMuted)),
-                if (note.isNotEmpty) ...[
-                  const SizedBox(height: 8),
-                  Text(note, style: const TextStyle(fontSize: 16)),
+          InkWell(
+            onTap: () => setState(() => _expanded = !_expanded),
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Row(
+                children: [
+                  const Icon(Icons.inventory_2_outlined, color: Backstage.accent),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Props · ${thisScene.length} on, ${comingBack.length} back'
+                      '${outstanding > 0 ? ' · $outstanding not set' : ''}',
+                      style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+                    ),
+                  ),
+                  Icon(_expanded ? Icons.expand_less : Icons.expand_more,
+                      color: Backstage.accent, size: 28),
                 ],
-              ],
+              ),
             ),
           ),
-          if (canEdit)
-            const Padding(
-              padding: EdgeInsets.only(left: 8),
-              child: Icon(Icons.edit_note, color: Backstage.accent),
+          if (_expanded)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  SectionHeader(
+                    'Needed this scene',
+                    trailing: canEdit
+                        ? TextButton.icon(
+                            onPressed: () => _openEditor(context, null),
+                            icon: const Icon(Icons.add),
+                            label: const Text('Add'),
+                          )
+                        : null,
+                  ),
+                  if (thisScene.isEmpty) const MutedText('Nothing goes on this scene.'),
+                  for (final prop in thisScene)
+                    _PropTile(
+                      service: service,
+                      prop: prop,
+                      checked: prop.isSet,
+                      checkLabel: 'Set',
+                      onChecked: () => service.togglePropSet(prop.id),
+                      onEdit: canEdit ? () => _openEditor(context, prop) : null,
+                    ),
+                  if (next != null) ...[
+                    SectionHeader('Needed next · ${next.title}'),
+                    if (nextUp.isEmpty) const MutedText('Nothing goes on next scene.'),
+                    for (final prop in nextUp)
+                      _PropTile(
+                        service: service,
+                        prop: prop,
+                        checked: prop.isSet,
+                        checkLabel: 'Ready',
+                        onChecked: () => service.togglePropSet(prop.id),
+                        onEdit: canEdit ? () => _openEditor(context, prop) : null,
+                      ),
+                  ],
+                  const SectionHeader('Expected back after this scene'),
+                  if (comingBack.isEmpty) const MutedText('Nothing due back this scene.'),
+                  for (final prop in comingBack)
+                    _PropTile(
+                      service: service,
+                      prop: prop,
+                      checked: prop.returned,
+                      checkLabel: 'Back',
+                      onChecked: () => service.togglePropReturned(prop.id),
+                      onEdit: canEdit ? () => _openEditor(context, prop) : null,
+                    ),
+                ],
+              ),
             ),
         ],
       ),
     );
   }
-}
-
-// ---------------------------------------------------------------------------
-// Props (stage crew)
-// ---------------------------------------------------------------------------
-
-class PropsPanel extends StatelessWidget {
-  const PropsPanel({
-    super.key,
-    required this.service,
-    required this.user,
-    required this.scene,
-    this.nextScene,
-  });
-
-  final ShowService service;
-  final StaffUser user;
-  final Scene scene;
-  final Scene? nextScene;
-
-  @override
-  Widget build(BuildContext context) {
-    final props = service.props;
-    final next = nextScene;
-    final thisScene = props.where((p) => p.onSceneId == scene.id).toList();
-    final nextUp = next == null ? <Prop>[] : props.where((p) => p.onSceneId == next.id).toList();
-    final comingBack = props.where((p) => p.offSceneId == scene.id).toList();
-    final canEdit = user.canEditProps;
-
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 4, 16, 32),
-      children: [
-        SectionHeader(
-          'Needed this scene',
-          trailing: canEdit
-              ? TextButton.icon(
-                  onPressed: () => _openEditor(context, null),
-                  icon: const Icon(Icons.add),
-                  label: const Text('Add prop'),
-                )
-              : null,
-        ),
-        if (thisScene.isEmpty) const MutedText('Nothing goes on this scene.'),
-        for (final prop in thisScene)
-          _PropTile(
-            service: service,
-            prop: prop,
-            checked: prop.isSet,
-            checkLabel: 'Set',
-            onChecked: () => service.togglePropSet(prop.id),
-            onEdit: canEdit ? () => _openEditor(context, prop) : null,
-          ),
-        if (next != null) ...[
-          SectionHeader('Needed next · ${next.title}'),
-          if (nextUp.isEmpty) const MutedText('Nothing goes on next scene.'),
-          for (final prop in nextUp)
-            _PropTile(
-              service: service,
-              prop: prop,
-              checked: prop.isSet,
-              checkLabel: 'Ready',
-              onChecked: () => service.togglePropSet(prop.id),
-              onEdit: canEdit ? () => _openEditor(context, prop) : null,
-            ),
-        ],
-        const SectionHeader('Expected back after this scene'),
-        if (comingBack.isEmpty) const MutedText('Nothing due back this scene.'),
-        for (final prop in comingBack)
-          _PropTile(
-            service: service,
-            prop: prop,
-            checked: prop.returned,
-            checkLabel: 'Back',
-            onChecked: () => service.togglePropReturned(prop.id),
-            onEdit: canEdit ? () => _openEditor(context, prop) : null,
-          ),
-        if (canEdit)
-          const Padding(
-            padding: EdgeInsets.only(top: 12),
-            child: MutedText('You can edit the props list. Tap a prop to change it.'),
-          ),
-      ],
-    );
-  }
 
   Future<void> _openEditor(BuildContext context, Prop? existing) async {
+    final service = widget.service;
     final result = await showDialog<_PropEdit>(
       context: context,
       builder: (_) => _PropEditorDialog(
         scenes: service.scenes,
         existing: existing,
-        defaultSceneId: scene.id,
+        defaultSceneId: widget.scene.id,
       ),
     );
     if (result == null) return;
@@ -342,9 +253,8 @@ class _PropEditorDialogState extends State<_PropEditorDialog> {
       TextEditingController(text: widget.existing?.note ?? '');
   late PropSide _side = widget.existing?.side ?? PropSide.stageLeft;
   late String _onSceneId = widget.existing?.onSceneId ?? widget.defaultSceneId;
-  late String? _offSceneId = widget.existing == null
-      ? widget.defaultSceneId
-      : widget.existing!.offSceneId;
+  late String? _offSceneId =
+      widget.existing == null ? widget.defaultSceneId : widget.existing!.offSceneId;
 
   @override
   void dispose() {

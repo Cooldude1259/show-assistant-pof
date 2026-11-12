@@ -5,12 +5,12 @@ import 'package:flutter/material.dart';
 import '../models.dart';
 import '../services/show_service.dart';
 import '../theme.dart';
+import '../widgets/cue_editors.dart';
 import '../widgets/cue_light.dart';
-import '../widgets/department_notes.dart';
 import '../widgets/script_view.dart';
 
-/// Crew view: cue light strip on top, then the script with your department's
-/// notes beside it (side by side on wide screens, tabs on a phone).
+/// Crew view, built around the script: cue strip on top, scene bar, then the
+/// script with your cues in it.
 class CrewScreen extends StatefulWidget {
   const CrewScreen({super.key, required this.service});
 
@@ -25,7 +25,6 @@ class _CrewScreenState extends State<CrewScreen> {
   String? _lastCueId;
   bool _demoCaller = true;
   int _demoIndex = 0;
-  int _tab = 0;
 
   /// Scene being viewed. Null = follow the live scene.
   int? _viewIndex;
@@ -70,16 +69,6 @@ class _CrewScreenState extends State<CrewScreen> {
         final liveIndex = s.sceneIndex;
         final viewIndex = max(0, min(_viewIndex ?? liveIndex, s.scenes.length - 1));
         final scene = s.scenes[viewIndex];
-        final nextScene = s.sceneAt(viewIndex + 1);
-
-        final script = ScriptView(service: s, scene: scene, myDepartment: dept);
-        final notes = DepartmentNotes(
-          service: s,
-          user: user,
-          department: dept,
-          scene: scene,
-          nextScene: nextScene,
-        );
 
         return Scaffold(
           appBar: AppBar(
@@ -97,13 +86,28 @@ class _CrewScreenState extends State<CrewScreen> {
               ),
             ],
           ),
+          floatingActionButton: FloatingActionButton(
+            tooltip: 'Add a cue at the end of this scene',
+            backgroundColor: Backstage.accent,
+            foregroundColor: Backstage.black,
+            onPressed: () => showAddCueSheet(
+              context,
+              service: s,
+              user: user,
+              sceneId: scene.id,
+              afterLine: scene.lines.length - 1,
+            ),
+            child: const Icon(Icons.add),
+          ),
+          bottomNavigationBar: _demoCaller ? _demoBar(dept) : null,
           body: Column(
             children: [
               _CueStrip(service: s, department: dept),
               _SceneBar(
                 scene: scene,
                 isLive: viewIndex == liveIndex,
-                onPrevious: viewIndex > 0 ? () => setState(() => _viewIndex = viewIndex - 1) : null,
+                onPrevious:
+                    viewIndex > 0 ? () => setState(() => _viewIndex = viewIndex - 1) : null,
                 onNext: viewIndex < s.scenes.length - 1
                     ? () => setState(() => _viewIndex = viewIndex + 1)
                     : null,
@@ -111,59 +115,20 @@ class _CrewScreenState extends State<CrewScreen> {
               ),
               const Divider(height: 1),
               Expanded(
-                child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    if (constraints.maxWidth >= 700) {
-                      return Row(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Expanded(flex: 3, child: script),
-                          const VerticalDivider(width: 1),
-                          Expanded(flex: 2, child: notes),
-                        ],
-                      );
-                    }
-                    return Column(
-                      children: [
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(12, 10, 12, 4),
-                          child: SizedBox(
-                            width: double.infinity,
-                            child: SegmentedButton<int>(
-                              showSelectedIcon: false,
-                              style: SegmentedButton.styleFrom(
-                                selectedBackgroundColor: Backstage.accent,
-                                selectedForegroundColor: Backstage.black,
-                                foregroundColor: Backstage.text,
-                                side: const BorderSide(color: Backstage.border),
-                              ),
-                              segments: [
-                                const ButtonSegment(
-                                  value: 0,
-                                  label: Text('Script'),
-                                  icon: Icon(Icons.description_outlined),
-                                ),
-                                ButtonSegment(
-                                  value: 1,
-                                  label: Text(dept == Department.stage ? 'Props' : 'My cues'),
-                                  icon: Icon(dept == Department.stage
-                                      ? Icons.inventory_2_outlined
-                                      : Icons.edit_note),
-                                ),
-                              ],
-                              selected: {_tab},
-                              onSelectionChanged: (selection) =>
-                                  setState(() => _tab = selection.first),
-                            ),
-                          ),
-                        ),
-                        Expanded(child: _tab == 0 ? script : notes),
-                      ],
-                    );
-                  },
+                child: Center(
+                  // Readable line length on iPads; full width on phones.
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 760),
+                    child: ScriptView(
+                      key: ValueKey(scene.id),
+                      service: s,
+                      user: user,
+                      scene: scene,
+                      nextScene: s.sceneAt(viewIndex + 1),
+                    ),
+                  ),
                 ),
               ),
-              if (_demoCaller) _demoBar(dept),
             ],
           ),
         );
@@ -173,9 +138,8 @@ class _CrewScreenState extends State<CrewScreen> {
 
   /// Lets one phone fake the stage manager, since there's no server yet.
   Widget _demoBar(Department dept) {
-    final myCues = s.cues.where((c) => c.department == dept).toList();
-    if (myCues.isEmpty) return const SizedBox.shrink();
-    final next = myCues[_demoIndex % myCues.length];
+    final myCues = s.callableCues.where((c) => c.department == dept).toList();
+    final next = myCues.isEmpty ? null : myCues[_demoIndex % myCues.length];
 
     return Material(
       color: Backstage.surface,
@@ -187,8 +151,9 @@ class _CrewScreenState extends State<CrewScreen> {
             children: [
               Expanded(
                 child: OutlinedButton(
-                  onPressed: () => s.standby(next),
-                  child: Text('Standby ${next.label}', overflow: TextOverflow.ellipsis),
+                  onPressed: next == null ? null : () => s.standby(next),
+                  child: Text(next == null ? 'No called cues' : 'Standby ${next.label}',
+                      overflow: TextOverflow.ellipsis),
                 ),
               ),
               const SizedBox(width: 8),
@@ -236,7 +201,7 @@ class _CueStrip extends StatelessWidget {
 
     final String detail;
     if (cue != null && mine) {
-      detail = '${cue.label} · ${cue.description}';
+      detail = '${cue.label} · ${cue.title}';
     } else if (cue != null) {
       detail = 'Other dept: ${cue.label} ${cueWord(service.state).toLowerCase()}';
     } else {

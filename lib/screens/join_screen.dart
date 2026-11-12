@@ -38,7 +38,7 @@ class _JoinScreenState extends State<JoinScreen> {
       final show = await widget.service.joinAsAudience(_code.text);
       if (!mounted) return;
       await Navigator.of(context).push(MaterialPageRoute<void>(
-        builder: (_) => AudienceScreen(show: show),
+        builder: (_) => AudienceScreen(service: widget.service, show: show),
       ));
     } on LoginException catch (e) {
       if (mounted) setState(() => _error = e.message);

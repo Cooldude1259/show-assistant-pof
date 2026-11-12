@@ -2,8 +2,6 @@ import 'package:flutter/widgets.dart';
 
 enum StaffRole { stageManager, crew }
 
-/// Crew departments. The app only talks to the *people* running these —
-/// it never outputs to lighting/sound systems themselves.
 enum Department {
   lighting('LX', 'Lighting'),
   sound('SQ', 'Sound'),
@@ -40,33 +38,106 @@ class StaffUser {
     return isLead ? '$dept lead' : dept;
   }
 
+  /// Audience cues are the lighting and sound departments' job.
+  bool get canSeeAudienceCues =>
+      department == Department.lighting || department == Department.sound;
+
+  /// Lighting edits audience light cues, sound edits audience sound cues.
+  bool canEditAudienceCue(AudienceCueKind kind) =>
+      (kind == AudienceCueKind.light && department == Department.lighting) ||
+      (kind == AudienceCueKind.sound && department == Department.sound);
+
+  /// Which audience cue kind this person can create, if any.
+  AudienceCueKind? get audienceCueKind => switch (department) {
+        Department.lighting => AudienceCueKind.light,
+        Department.sound => AudienceCueKind.sound,
+        _ => null,
+      };
+
   /// Props lists are owned by the stage crew lead (and the SM).
   bool get canEditProps =>
       role == StaffRole.stageManager || (department == Department.stage && isLead);
-
-  /// Cue notes are written by the department that runs those cues.
-  bool canEditCueNotes(Department dept) =>
-      role == StaffRole.stageManager || department == dept;
 }
 
 enum CueState { idle, standby, go }
 
-class Cue {
-  const Cue({
+/// Something a crew member has to do or know at a point in the script:
+/// a GO the stage manager calls, a curtain, a stage-level sound effect, or
+/// just a heads-up note. Belongs to one department. Anyone can edit them.
+class StaffCue {
+  StaffCue({
     required this.id,
     required this.sceneId,
+    required this.afterLine,
     required this.department,
-    required this.number,
-    required this.description,
+    required this.title,
+    this.number,
+    this.note = '',
+    this.callable = false,
   });
 
   final String id;
-  final String sceneId;
-  final Department department;
-  final int number;
-  final String description;
+  String sceneId;
 
-  String get label => '${department.code} $number';
+  /// Sits after this line of the scene. -1 = top of the scene.
+  int afterLine;
+  Department department;
+
+  /// Only called cues get a number (LX 3). Notes/tasks don't.
+  int? number;
+  String title;
+  String note;
+
+  /// Called by the stage manager with STANDBY / GO.
+  bool callable;
+
+  String get label => number == null ? department.code : '${department.code} $number';
+}
+
+enum AudienceCueKind { light, sound }
+
+enum LightEffect {
+  solid('Solid colour'),
+  pulse('Pulse'),
+  flicker('Flicker'),
+  fade('Fade to black'),
+  blackout('Blackout');
+
+  const LightEffect(this.label);
+  final String label;
+}
+
+/// Something that happens on the audience's own phones. Run by the show
+/// server; designed by lighting (light) and sound (sound).
+class AudienceCue {
+  AudienceCue({
+    required this.id,
+    required this.sceneId,
+    required this.afterLine,
+    required this.kind,
+    required this.number,
+    required this.name,
+    this.color = const Color(0xFFFFFFFF),
+    this.effect = LightEffect.solid,
+    this.durationMs = 2000,
+  });
+
+  final String id;
+  String sceneId;
+  int afterLine;
+  AudienceCueKind kind;
+  int number;
+
+  /// For sound cues this is what the demo shows on screen ("Thunder Sound").
+  String name;
+  Color color;
+  LightEffect effect;
+  int durationMs;
+
+  Department get department =>
+      kind == AudienceCueKind.light ? Department.lighting : Department.sound;
+
+  String get label => 'AUD ${department.code} $number';
 }
 
 class Scene {
@@ -87,28 +158,18 @@ class Scene {
   String get label => 'Act $act, Scene $number';
 }
 
-enum LineType { dialogue, direction, cue }
+enum LineType { dialogue, direction }
 
 class ScriptLine {
-  const ScriptLine.dialogue(this.character, this.text)
-      : type = LineType.dialogue,
-        cueId = null;
+  const ScriptLine.dialogue(this.character, this.text) : type = LineType.dialogue;
 
   const ScriptLine.direction(this.text)
       : type = LineType.direction,
-        character = null,
-        cueId = null;
-
-  /// A cue marker sitting at this point in the script.
-  const ScriptLine.cue(this.cueId)
-      : type = LineType.cue,
-        character = null,
-        text = '';
+        character = null;
 
   final LineType type;
   final String? character;
   final String text;
-  final String? cueId;
 }
 
 enum PropSide {
@@ -161,28 +222,29 @@ class VenueInfo {
   final String detail;
 }
 
+/// What the audience is allowed to see. Deliberately no scene list.
 class AudienceShow {
   const AudienceShow({
     required this.title,
     required this.tagline,
+    required this.bio,
     required this.venue,
     required this.dateLine,
     required this.status,
     required this.statusLine,
     required this.notices,
-    required this.scenes,
     required this.cast,
     required this.venueInfo,
   });
 
   final String title;
   final String tagline;
+  final String bio;
   final String venue;
   final String dateLine;
   final AudienceStatus status;
   final String statusLine;
   final List<String> notices;
-  final List<Scene> scenes;
   final List<CastMember> cast;
   final List<VenueInfo> venueInfo;
 }

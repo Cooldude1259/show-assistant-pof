@@ -1,13 +1,17 @@
 import 'package:flutter/material.dart';
 
 import '../models.dart';
+import '../services/show_service.dart';
 import '../theme.dart';
+import '../widgets/venue_map.dart';
+import 'live_show_screen.dart';
 
-/// Audience view: a digital programme rather than a tool. Separate look and
-/// separate trust level from the crew app.
+/// Audience view: a digital programme. No scene list, nothing that gives
+/// the show away.
 class AudienceScreen extends StatelessWidget {
-  const AudienceScreen({super.key, required this.show});
+  const AudienceScreen({super.key, required this.service, required this.show});
 
+  final ShowService service;
   final AudienceShow show;
 
   @override
@@ -37,10 +41,29 @@ class AudienceScreen extends StatelessWidget {
                   _StatusCard(show: show),
                   const SizedBox(height: 12),
                   for (final notice in show.notices) _Notice(text: notice),
-                  const _SectionTitle('Scenes'),
-                  ..._scenesByAct(show.scenes),
+                  const SizedBox(height: 16),
+                  FilledButton.icon(
+                    onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(
+                      builder: (_) => LiveShowScreen(service: service, showTitle: show.title),
+                    )),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: Playbill.gold,
+                      foregroundColor: Playbill.bg,
+                      minimumSize: const Size.fromHeight(52),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    ),
+                    icon: const Icon(Icons.auto_awesome),
+                    label: const Text('Preview show mode',
+                        style: TextStyle(fontFamily: Playbill.serif, fontSize: 18)),
+                  ),
+                  const _SectionTitle('About the show'),
+                  Text(show.bio,
+                      style: const TextStyle(
+                          fontFamily: Playbill.serif, fontSize: 17, height: 1.5)),
                   const _SectionTitle('Cast'),
                   for (final member in show.cast) _CastRow(member: member),
+                  const _SectionTitle('Find your way'),
+                  const VenueMap(),
                   const _SectionTitle('At the venue'),
                   for (final info in show.venueInfo) _VenueRow(info: info),
                 ],
@@ -50,39 +73,6 @@ class AudienceScreen extends StatelessWidget {
         ),
       ),
     );
-  }
-
-  List<Widget> _scenesByAct(List<Scene> scenes) {
-    final widgets = <Widget>[];
-    int? currentAct;
-    for (final scene in scenes) {
-      if (scene.act != currentAct) {
-        currentAct = scene.act;
-        widgets.add(Padding(
-          padding: const EdgeInsets.only(top: 8, bottom: 4),
-          child: Text('Act ${scene.act}',
-              style: const TextStyle(
-                  fontFamily: Playbill.serif, fontSize: 18, color: Playbill.gold)),
-        ));
-      }
-      widgets.add(Padding(
-        padding: const EdgeInsets.symmetric(vertical: 6),
-        child: Row(
-          children: [
-            SizedBox(
-              width: 32,
-              child: Text('${scene.number}',
-                  style: const TextStyle(color: Playbill.muted, fontSize: 16)),
-            ),
-            Expanded(
-              child: Text(scene.title,
-                  style: const TextStyle(fontFamily: Playbill.serif, fontSize: 18)),
-            ),
-          ],
-        ),
-      ));
-    }
-    return widgets;
   }
 }
 
@@ -206,7 +196,7 @@ class _SectionTitle extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(top: 28, bottom: 8),
+      padding: const EdgeInsets.only(top: 28, bottom: 10),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

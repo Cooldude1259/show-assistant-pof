@@ -16,7 +16,7 @@ class CallerScreen extends StatefulWidget {
 }
 
 class _CallerScreenState extends State<CallerScreen> {
-  late String _selectedId = widget.service.cues.first.id;
+  late String _selectedId = widget.service.callableCues.first.id;
 
   ShowService get s => widget.service;
 
@@ -25,9 +25,10 @@ class _CallerScreenState extends State<CallerScreen> {
     s.go();
     // Move the selection on to the cue after the one just called.
     if (active != null) {
-      final index = s.cues.indexOf(active);
-      if (index >= 0 && index < s.cues.length - 1) {
-        setState(() => _selectedId = s.cues[index + 1].id);
+      final cues = s.callableCues;
+      final index = cues.indexWhere((c) => c.id == active.id);
+      if (index >= 0 && index < cues.length - 1) {
+        setState(() => _selectedId = cues[index + 1].id);
       }
     }
   }
@@ -37,7 +38,8 @@ class _CallerScreenState extends State<CallerScreen> {
     return ListenableBuilder(
       listenable: s,
       builder: (context, _) {
-        final selectedCue = s.cueById(_selectedId) ?? s.cues.first;
+        final callable = s.callableCues;
+        final selectedCue = s.staffCueById(_selectedId) ?? callable.first;
         final selectedIsInStandby =
             s.state == CueState.standby && s.activeCue?.id == selectedCue.id;
         final scene = s.scenes[s.sceneIndex];
@@ -109,7 +111,7 @@ class _CallerScreenState extends State<CallerScreen> {
                           ),
                         ),
                       ),
-                      for (final cue in s.cues.where((c) => c.sceneId == sc.id))
+                      for (final cue in callable.where((c) => c.sceneId == sc.id))
                         _cueTile(cue),
                     ],
                   ],
@@ -148,7 +150,7 @@ class _CallerScreenState extends State<CallerScreen> {
     );
   }
 
-  Widget _cueTile(Cue cue) {
+  Widget _cueTile(StaffCue cue) {
     final isActive = s.activeCue?.id == cue.id;
     final isSelected = cue.id == _selectedId;
     return Container(
@@ -164,7 +166,7 @@ class _CallerScreenState extends State<CallerScreen> {
       child: ListTile(
         leading: CueLight(state: isActive ? s.state : CueState.idle),
         title: Text(cue.label, style: const TextStyle(fontWeight: FontWeight.w900)),
-        subtitle: Text(cue.description, style: const TextStyle(color: Backstage.textMuted)),
+        subtitle: Text(cue.title, style: const TextStyle(color: Backstage.textMuted)),
         trailing: Text(cue.department.label, style: const TextStyle(color: Backstage.textMuted)),
         onTap: () => setState(() => _selectedId = cue.id),
       ),
@@ -193,7 +195,7 @@ class _StatusPanel extends StatelessWidget {
           : 'Waiting for ${cue.department.label}…';
     } else {
       title = 'GO ${cue.label}';
-      detail = cue.description;
+      detail = cue.title;
     }
 
     return Padding(

@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:math';
 
-import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 
 import '../models.dart';
 import 'demo_data.dart';
@@ -39,34 +39,75 @@ abstract class ShowService extends ChangeNotifier {
     return null;
   }
 
-  // ---- Cues ----
-  List<Cue> get cues;
+  int sceneIndexOf(String sceneId) => scenes.indexWhere((s) => s.id == sceneId);
 
-  Cue? cueById(String id) {
-    for (final cue in cues) {
+  // ---- Staff cues (per department, anyone can edit) ----
+
+  /// All staff cues, in script order.
+  List<StaffCue> get staffCues;
+
+  List<StaffCue> get callableCues => staffCues.where((c) => c.callable).toList();
+
+  StaffCue? staffCueById(String id) {
+    for (final cue in staffCues) {
       if (cue.id == id) return cue;
     }
     return null;
   }
 
-  List<Cue> cuesFor(String sceneId, Department department) =>
-      cues.where((c) => c.sceneId == sceneId && c.department == department).toList();
+  List<StaffCue> staffCuesAt(String sceneId, int afterLine) =>
+      staffCues.where((c) => c.sceneId == sceneId && c.afterLine == afterLine).toList();
+
+  int nextStaffNumber(Department department) {
+    var highest = 0;
+    for (final cue in staffCues) {
+      if (cue.department == department && (cue.number ?? 0) > highest) highest = cue.number!;
+    }
+    return highest + 1;
+  }
+
+  /// Adds the cue, or replaces the one with the same id.
+  void saveStaffCue(StaffCue cue);
+  void removeStaffCue(String id);
+
+  // ---- Audience cues (lighting + sound only) ----
+
+  /// All audience cues, in script order.
+  List<AudienceCue> get audienceCues;
+
+  List<AudienceCue> audienceCuesAt(String sceneId, int afterLine) =>
+      audienceCues.where((c) => c.sceneId == sceneId && c.afterLine == afterLine).toList();
+
+  int nextAudienceNumber(AudienceCueKind kind) {
+    var highest = 0;
+    for (final cue in audienceCues) {
+      if (cue.kind == kind && cue.number > highest) highest = cue.number;
+    }
+    return highest + 1;
+  }
+
+  void saveAudienceCue(AudienceCue cue);
+  void removeAudienceCue(String id);
+
+  /// Send a cue to every audience device. [audienceFireCount] goes up by one
+  /// each time, so listeners can tell a re-fire of the same cue apart.
+  void fireAudienceCue(AudienceCue cue);
+  AudienceCue? get lastAudienceCue;
+  int get audienceFireCount;
+
+  // ---- Calling (stage manager STANDBY / GO on staff cues) ----
 
   /// The cue currently in standby or just called. Null when nothing is live.
-  Cue? get activeCue;
+  StaffCue? get activeCue;
   CueState get state;
 
   /// Whether the department for [activeCue] has acknowledged the standby.
   bool get acknowledged;
 
-  void standby(Cue cue);
+  void standby(StaffCue cue);
   void go();
   void acknowledge();
   void reset();
-
-  /// Operator's own notes on a cue (e.g. lighting writing their cue details).
-  String cueNote(String cueId);
-  void setCueNote(String cueId, String note);
 
   // ---- Props ----
   List<Prop> get props;
@@ -115,14 +156,18 @@ class MockShowService extends ShowService {
 
   StaffUser? _user;
   int _sceneIndex = 0;
-  Cue? _activeCue;
+  StaffCue? _activeCue;
   CueState _state = CueState.idle;
   bool _acknowledged = false;
   Timer? _ackTimer;
   Timer? _clearTimer;
 
-  final Map<String, String> _cueNotes = Map.of(demoCueNotes);
+  final List<StaffCue> _staffCues = buildDemoStaffCues();
+  final List<AudienceCue> _audienceCues = buildDemoAudienceCues();
   final List<Prop> _props = buildDemoProps();
+
+  AudienceCue? _lastAudienceCue;
+  int _audienceFireCount = 0;
 
   @override
   String get showName => demoShowTitle;
@@ -134,13 +179,24 @@ class MockShowService extends ShowService {
   List<Scene> get scenes => demoScenes;
 
   @override
-  List<Cue> get cues => demoCues;
-
-  @override
   int get sceneIndex => _sceneIndex;
 
   @override
-  Cue? get activeCue => _activeCue;
+  List<StaffCue> get staffCues =>
+      _scriptOrder(_staffCues, (c) => c.sceneId, (c) => c.afterLine);
+
+  @override
+  List<AudienceCue> get audienceCues =>
+      _scriptOrder(_audienceCues, (c) => c.sceneId, (c) => c.afterLine);
+
+  @override
+  AudienceCue? get lastAudienceCue => _lastAudienceCue;
+
+  @override
+  int get audienceFireCount => _audienceFireCount;
+
+  @override
+  StaffCue? get activeCue => _activeCue;
 
   @override
   CueState get state => _state;
@@ -151,12 +207,29 @@ class MockShowService extends ShowService {
   @override
   List<Prop> get props => List.unmodifiable(_props);
 
+  /// Sort by scene, then line, keeping insertion order for ties.
+  List<T> _scriptOrder<T>(
+      List<T> items, String Function(T) sceneOf, int Function(T) lineOf) {
+    final indexed = [for (var i = 0; i < items.length; i++) (i, items[i])];
+    indexed.sort((a, b) {
+      final bySceneA = sceneIndexOf(sceneOf(a.$2));
+      final bySceneB = sceneIndexOf(sceneOf(b.$2));
+      if (bySceneA != bySceneB) return bySceneA - bySceneB;
+      final byLine = lineOf(a.$2) - lineOf(b.$2);
+      if (byLine != 0) return byLine;
+      return a.$1 - b.$1;
+    });
+    return [for (final entry in indexed) entry.$2];
+  }
+
   @override
   void setScene(int index) {
     if (index < 0 || index >= scenes.length || index == _sceneIndex) return;
     _sceneIndex = index;
     notifyListeners();
   }
+
+  // ---- Auth ----
 
   @override
   Future<StaffUser> login({
@@ -202,8 +275,57 @@ class MockShowService extends ShowService {
     return buildDemoAudienceShow();
   }
 
+  // ---- Cue editing ----
+
   @override
-  void standby(Cue cue) {
+  void saveStaffCue(StaffCue cue) {
+    final index = _staffCues.indexWhere((c) => c.id == cue.id);
+    if (index >= 0) {
+      _staffCues[index] = cue;
+    } else {
+      _staffCues.add(cue);
+    }
+    notifyListeners();
+  }
+
+  @override
+  void removeStaffCue(String id) {
+    _staffCues.removeWhere((c) => c.id == id);
+    if (_activeCue?.id == id) {
+      reset();
+    } else {
+      notifyListeners();
+    }
+  }
+
+  @override
+  void saveAudienceCue(AudienceCue cue) {
+    final index = _audienceCues.indexWhere((c) => c.id == cue.id);
+    if (index >= 0) {
+      _audienceCues[index] = cue;
+    } else {
+      _audienceCues.add(cue);
+    }
+    notifyListeners();
+  }
+
+  @override
+  void removeAudienceCue(String id) {
+    _audienceCues.removeWhere((c) => c.id == id);
+    notifyListeners();
+  }
+
+  @override
+  void fireAudienceCue(AudienceCue cue) {
+    _lastAudienceCue = cue;
+    _audienceFireCount++;
+    notifyListeners();
+  }
+
+  // ---- Calling ----
+
+  @override
+  void standby(StaffCue cue) {
     _cancelTimers();
     _activeCue = cue;
     _state = CueState.standby;
@@ -214,7 +336,7 @@ class MockShowService extends ShowService {
     // fake the other department doing it.
     if (!_isMine(cue)) {
       _ackTimer = Timer(Duration(milliseconds: 700 + _random.nextInt(1800)), () {
-        if (_state == CueState.standby && _activeCue == cue) {
+        if (_state == CueState.standby && _activeCue?.id == cue.id) {
           _acknowledged = true;
           notifyListeners();
         }
@@ -230,9 +352,9 @@ class MockShowService extends ShowService {
     notifyListeners();
 
     // GO stays lit briefly, then the light clears.
-    final cue = _activeCue;
+    final cueId = _activeCue?.id;
     _clearTimer = Timer(const Duration(seconds: 4), () {
-      if (_activeCue == cue && _state == CueState.go) {
+      if (_activeCue?.id == cueId && _state == CueState.go) {
         _activeCue = null;
         _state = CueState.idle;
         _acknowledged = false;
@@ -257,18 +379,7 @@ class MockShowService extends ShowService {
     notifyListeners();
   }
 
-  @override
-  String cueNote(String cueId) => _cueNotes[cueId] ?? '';
-
-  @override
-  void setCueNote(String cueId, String note) {
-    if (note.isEmpty) {
-      _cueNotes.remove(cueId);
-    } else {
-      _cueNotes[cueId] = note;
-    }
-    notifyListeners();
-  }
+  // ---- Props ----
 
   @override
   void saveProp(Prop prop) {
@@ -303,7 +414,7 @@ class MockShowService extends ShowService {
     notifyListeners();
   }
 
-  bool _isMine(Cue cue) =>
+  bool _isMine(StaffCue cue) =>
       _user?.role == StaffRole.crew && _user?.department == cue.department;
 
   void _cancelTimers() {
