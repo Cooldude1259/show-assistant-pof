@@ -1,26 +1,24 @@
 workflows:
   ios-unsigned:
-    name: iOS unsigned IPA (sign later with plumesign)
+    name: iOS unsigned IPA (sign later with plumesign / Impactor)
     instance_type: mac_mini_m2
     max_build_duration: 30
     environment:
       flutter: stable
       xcode: latest
-      vars:
-        # The bundle ID. Change it here and nowhere else.
-        BUNDLE_ID: com.cooldude12.showassistant
     scripts:
-      - name: Generate iOS project if it isn't committed yet
+      # The committed ios/ folder is the single source of truth: bundle ID,
+      # display name, permissions and Info.plist all live there. This step
+      # only checks it, so a broken or missing ios/ fails fast instead of
+      # quietly building something with the wrong ID.
+      - name: Check ios project
         script: |
-          if [ ! -d ios ]; then
-            flutter create --platforms ios --org com.cooldude12 --project-name show_assistant .
+          if [ ! -f ios/Runner.xcodeproj/project.pbxproj ]; then
+            echo "ios/ folder is missing. Commit it from your PC first."
+            exit 1
           fi
-      - name: Set bundle ID
-        script: |
-          # flutter create names the app <org>.showAssistant; swap in BUNDLE_ID.
-          # Only matches the main target (the test target ends in .RunnerTests).
-          sed -i '' -E "s/PRODUCT_BUNDLE_IDENTIFIER = [^;]*showAssistant;/PRODUCT_BUNDLE_IDENTIFIER = $BUNDLE_ID;/" ios/Runner.xcodeproj/project.pbxproj
-          grep -n "PRODUCT_BUNDLE_IDENTIFIER" ios/Runner.xcodeproj/project.pbxproj
+          grep -q "PRODUCT_BUNDLE_IDENTIFIER = com.cooldude12.showassistant;" ios/Runner.xcodeproj/project.pbxproj \
+            || { echo "Bundle ID in ios/ is not com.cooldude12.showassistant"; exit 1; }
       - name: Build unsigned IPA
         script: |
           flutter pub get
