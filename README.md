@@ -2,7 +2,7 @@
 
 UI-only app. No backend: `MockShowService` fakes everything in memory.
 
-- **Bundle ID:** `com.cooldude12.showassistant` (set in `codemagic.yaml`)
+- **Bundle ID:** `com.cooldude12.showassistant`, set in the committed `ios/` folder (Codemagic builds straight from it and fails if it changes)
 - **Audience:** opens on the join screen, code `DEMO`. "Preview show mode" shows what a phone does during the show.
 - **Staff:** "Crew & staff sign in" at the bottom, show code `DEMO`, PIN `1234`
 
